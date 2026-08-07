@@ -41,10 +41,12 @@ def scan(site_key, queries, max_pages=5):
 def export_excel(df, tab, excel_out=None, max_interval=100, keywords=None):
     """Filter a scanned df down to relevant, recent jobs and write it to an Excel tab.
 
-    - max_interval: drop jobs posted more than this many days ago.
+    - max_interval: drop jobs posted more than this many days ago. Jobs whose
+      site exposes no posting date (interval_days is null) are always kept,
+      since there's nothing to filter them on.
     - keywords: override the default title-relevance keyword list (see relevance.py).
     """
-    filtered = df.query(f"interval_days <= {max_interval}")
+    filtered = df[df["interval_days"].isna() | (df["interval_days"] <= max_interval)]
     filtered = filter_relevant(filtered, keywords)
     filtered = filtered.sort_values("interval_days")
 

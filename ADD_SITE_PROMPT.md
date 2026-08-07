@@ -20,14 +20,25 @@ Steps:
    inspect the DOM to find: the repeating job-card selector, the title/link
    anchor, the posted-date element (and whether its text is an absolute date
    like "Posted May 21, 2026" or a relative one like "3 days ago"), and the
-   location element. Fill in a `CardSelectors` for it.
-3. Figure out the pagination mechanism: an incrementing `offset`/`page`
-   query param (`OffsetPagination`), or a "next page" button/click
-   (`ClickPagination`). If the page doesn't render job listings in clean
-   repeating card elements (rare, but Microsoft's careers site is like this),
-   write a small `custom_extractor(page, config, query, max_pages)` instead
-   of `CardSelectors` — see `_extract_microsoft` in `sites.py` for the
-   pattern to follow.
+   location element. Fill in a `CardSelectors` for it. Some sites (e.g.
+   Stripe) don't expose a posting date anywhere, on the list or detail page —
+   if so, leave `date_format=None` on the `SiteConfig`; `interval_days` will
+   be null for that site and the recency filter in `export_excel` treats
+   null as "always keep" rather than dropping every row.
+3. Figure out the pagination mechanism:
+   - an incrementing item-offset query param, e.g. `offset=0,10,20,...`
+     (`OffsetPagination`)
+   - an incrementing page-number query param, e.g. `page=1,2,3,...`
+     (`PagePagination`) — check whether clicking "next" in the browser
+     changes the URL; if it does, this is usually simpler and more reliable
+     than `ClickPagination`
+   - a "next page" button/click with no URL change (`ClickPagination`)
+
+   If the page doesn't render job listings in clean repeating card elements
+   (rare, but Microsoft's careers site is like this), write a small
+   `custom_extractor(page, config, query, max_pages)` instead of
+   `CardSelectors` — see `_extract_microsoft` in `sites.py` for the pattern
+   to follow.
 4. Add the new `SiteConfig` to the `SITES` dict in `sites.py`.
 5. Smoke-test it: `python scraper_core.py --site <new_key> --query "data science" --max_pages 1`
    and check the output JSON has sane `title`/`posted`/`interval_days`/`location`/`href` values.

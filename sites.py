@@ -8,7 +8,7 @@ cards (see microsoft below) need a small custom_extractor function instead.
 import re
 from urllib.parse import quote_plus, urljoin
 
-from site_config import SiteConfig, OffsetPagination, ClickPagination, CardSelectors
+from site_config import SiteConfig, OffsetPagination, PagePagination, ClickPagination, CardSelectors, is_disabled
 
 
 # ── Amazon: card-based, offset pagination, absolute "Posted <date>" text ───
@@ -79,7 +79,7 @@ def _extract_microsoft(page, config, query, max_pages):
                 pass
 
         next_btn = page.locator(config.pagination.next_button_selector)
-        if next_btn.get_attribute(config.pagination.disabled_attr) == "true":
+        if is_disabled(next_btn, config.pagination.disabled_attr):
             break
         next_btn.click()
         page_count += 1
@@ -108,7 +108,36 @@ MICROSOFT = SiteConfig(
 )
 
 
+# ── Stripe: card-based, page-number pagination, no posting date exposed ────
+# (Neither the search results nor an individual listing page show a posted/
+# updated date anywhere, so date_format is left unset -- interval_days will
+# always be null for Stripe jobs, and export_excel's recency filter treats
+# that as "always keep" rather than dropping every Stripe row.)
+
+STRIPE = SiteConfig(
+    name="stripe",
+    base_url="https://stripe.com/careers/search",
+    query_param="query",
+    static_params={
+        "locations": [
+            "North America--United States--Remote in United States",
+            "North America--United States--Seattle",
+        ],
+    },
+    pagination=PagePagination(param="page", start=1),
+    date_format=None,
+    href_prefix="https://stripe.com",
+    quote_via=quote_plus,
+    selectors=CardSelectors(
+        card="li.careers-role-result",
+        link="a.careers-role-result__title",
+        location="span.careers-role-result__metadata-location",
+    ),
+)
+
+
 SITES = {
     "amazon": AMAZON,
     "microsoft": MICROSOFT,
+    "stripe": STRIPE,
 }

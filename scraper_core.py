@@ -9,12 +9,11 @@ import re
 from datetime import datetime
 from playwright.sync_api import sync_playwright
 
-from site_config import OffsetPagination, ClickPagination
-from sites import SITES
+from site_config import OffsetPagination, PagePagination, ClickPagination, is_disabled
 
 
 def scrape_site(config, query, max_pages=5):
-    first_url = config.build_url(query, offset=0)
+    first_url = config.build_url(query, page_index=0)
 
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=False)
@@ -22,8 +21,8 @@ def scrape_site(config, query, max_pages=5):
 
         if config.custom_extractor:
             raw_jobs = config.custom_extractor(page, config, query, max_pages)
-        elif isinstance(config.pagination, OffsetPagination):
-            raw_jobs = _scrape_offset(page, config, query, max_pages)
+        elif isinstance(config.pagination, (OffsetPagination, PagePagination)):
+            raw_jobs = _scrape_paged(page, config, query, max_pages)
         elif isinstance(config.pagination, ClickPagination):
             raw_jobs = _scrape_click(page, config, query, max_pages)
         else:
@@ -32,7 +31,7 @@ def scrape_site(config, query, max_pages=5):
         browser.close()
 
     for job in raw_jobs:
-        job["interval_days"] = _parse_interval_days(job.get("posted"), config.date_format)
+        job["interval_days"] = _parse_interval_days(job.get("posted"), config.date_format) if config.date_format else None
 
     return {
         "metadata": {
@@ -47,12 +46,10 @@ def scrape_site(config, query, max_pages=5):
 
 # ── pagination strategies ───────────────────────────────────────────────────
 
-def _scrape_offset(page, config, query, max_pages):
+def _scrape_paged(page, config, query, max_pages):
     jobs = []
-    page_size = config.pagination.page_size
     for page_num in range(max_pages):
-        offset = page_num * page_size
-        page.goto(config.build_url(query, offset), wait_until="domcontentloaded")
+        page.goto(config.build_url(query, page_index=page_num), wait_until="domcontentloaded")
         page.wait_for_timeout(config.goto_wait_ms)
 
         cards = page.locator(config.selectors.card).all()
@@ -79,7 +76,7 @@ def _scrape_click(page, config, query, max_pages):
                 jobs.append(job)
 
         next_btn = page.locator(config.pagination.next_button_selector)
-        if next_btn.count() == 0 or next_btn.get_attribute(config.pagination.disabled_attr) == "true":
+        if next_btn.count() == 0 or is_disabled(next_btn, config.pagination.disabled_attr):
             break
         next_btn.click()
         page_count += 1
@@ -155,6 +152,8 @@ def _dedup(jobs):
 
 
 if __name__ == "__main__":
+    from sites import SITES
+
     parser = argparse.ArgumentParser(description="Generic job site scraper")
     parser.add_argument("--site", required=True, choices=list(SITES.keys()))
     parser.add_argument("--query", type=str, default="data science")
