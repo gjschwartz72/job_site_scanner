@@ -1,58 +1,40 @@
-import re
 import json
 import os
-import subprocess
 import pandas as pd
 from datetime import datetime
 from openpyxl.styles import Font
 from relevance import filter_relevant
+from scraper_core import scrape_site
+from sites import SITES
 
 RESULT_COLS = ["job_id", "title", "posted", "interval_days", "location", "href"]
 
 outputDir = 'output'
-def scan_ms(queries, max_pages=5, sort_by="relevant"):
-    """Run one or more MS searches, deduplicate, and save the full result set to ms_jobs.json.
 
+
+def scan(site_key, queries, max_pages=5):
+    """Run one or more searches against a configured site, deduplicate, and save
+    the full result set to <site_key>_jobs_<date>.json.
+
+    site_key must be a key in sites.SITES (e.g. "amazon", "microsoft").
     Returns (df, json_path) -- df holds every job found, unfiltered.
     """
     if isinstance(queries, str):
         queries = [queries]
+    config = SITES[site_key]
 
     all_results = []
     for q in queries:
-        all_results.extend(_run_query("search_ms.py", ["--query", q, "--max_pages", str(max_pages), "--sortBy", sort_by], "ms_jobs.json"))
+        all_results.extend(scrape_site(config, q, max_pages=max_pages)["results"])
 
     deduped = _dedup(all_results)
-    json_out = _json_name("ms")
+    json_out = _json_name(site_key)
 
     with open(json_out, "w", encoding="utf-8") as f:
-        json.dump({"metadata": {"source": "microsoft", "queries": queries, "scraped_at": datetime.now().isoformat()}, "results": deduped}, f, indent=2)
+        json.dump({"metadata": {"source": site_key, "queries": queries, "scraped_at": datetime.now().isoformat()}, "results": deduped}, f, indent=2)
 
     df = pd.DataFrame(deduped, columns=RESULT_COLS)
-    print(f"Saved {len(df)} Microsoft jobs → {json_out}")
-    return df, json_out
-
-
-def scan_amazon(queries, max_pages=5, sort_by="recent"):
-    """Run one or more Amazon searches, deduplicate, and save the full result set to amazon_jobs.json.
-
-    Returns (df, json_path) -- df holds every job found, unfiltered.
-    """
-    if isinstance(queries, str):
-        queries = [queries]
-
-    all_results = []
-    for q in queries:
-        all_results.extend(_run_query("search_amazon.py", ["--base_query", q, "--max_pages", str(max_pages), "--sort", sort_by], "amazon_jobs.json"))
-
-    deduped = _dedup(all_results)
-    json_out = _json_name("amazon")
-
-    with open(json_out, "w", encoding="utf-8") as f:
-        json.dump({"metadata": {"source": "amazon", "queries": queries, "scraped_at": datetime.now().isoformat()}, "results": deduped}, f, indent=2)
-
-    df = pd.DataFrame(deduped, columns=RESULT_COLS)
-    print(f"Saved {len(df)} Amazon jobs → {json_out}")
+    print(f"Saved {len(df)} {site_key} jobs → {json_out}")
     return df, json_out
 
 
@@ -84,13 +66,6 @@ def _excel_name(excel_out):
 def _json_name(source):
     dt = datetime.now()
     return f'{source}_jobs_{dt.year}_{dt.month:02d}_{dt.day:02d}.json'
-
-
-def _run_query(script, args, json_file):
-    """Run a scraper subprocess and return its results list."""
-    subprocess.run(["python", script] + args, check=True)
-    with open(json_file, "r", encoding="utf-8") as f:
-        return json.load(f)["results"]
 
 
 def _dedup(results):
@@ -127,16 +102,3 @@ def _apply_hyperlinks(ws, df):
         cell = ws.cell(row=row_offset + 2, column=col_idx)
         cell.hyperlink = url
         cell.font = link_font
-
-
-def interval_to_hours(text, asDays=True):
-    text = text.strip().lower()
-    pattern = r"(an?\b|\d+)\s+(minute|hour|day|month|year)s?\s+ago"
-    m = re.match(pattern, text)
-    if not m:
-        raise ValueError(f"Cannot parse interval: {text}")
-    value, unit = m.groups()
-    value = 1 if value in ("a", "an") else int(value)
-    hours_per_unit = {"minute": 1/60, "hour": 1, "day": 24, "month": 24*30, "year": 24*365}
-    hours = value * hours_per_unit[unit]
-    return hours / 24 if asDays else hours
